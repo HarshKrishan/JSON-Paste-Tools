@@ -17,4 +17,5 @@ export type RuntimeMessage =
       clipboardText?: string;
     }
   | { type: "GET_SETTINGS" }
-  | { type: "SAVE_SETTINGS"; settings: JsonToolsSettings };
+  | { type: "SAVE_SETTINGS"; settings: JsonToolsSettings }
+  | { type: "GET_LAST_RESULT" };

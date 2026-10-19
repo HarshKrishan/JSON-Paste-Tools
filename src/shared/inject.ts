@@ -21,25 +21,39 @@ export interface InjectResult {
  * If the user selected a range, only that selection is replaced.
  */
 export function injectInsertText(text: string): InjectResult {
+  function isEditable(el: Element | null): el is HTMLElement {
+    if (!el) return false;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      return true;
+    }
+    return el instanceof HTMLElement && el.isContentEditable;
+  }
+
   function resolveTarget(): Element | null {
     const active = document.activeElement;
-    if (
-      active instanceof HTMLInputElement ||
-      active instanceof HTMLTextAreaElement ||
-      (active instanceof HTMLElement && active.isContentEditable)
-    ) {
-      return active;
-    }
+    if (isEditable(active)) return active;
 
     const tracked = (globalThis as unknown as { __jptLastEditable?: Element })
       .__jptLastEditable;
-    if (
-      tracked instanceof HTMLInputElement ||
-      tracked instanceof HTMLTextAreaElement ||
-      (tracked instanceof HTMLElement && tracked.isContentEditable)
-    ) {
-      return tracked;
-    }
+    if (tracked && isEditable(tracked)) return tracked;
+
+    // Monaco / VS Code web often uses a hidden textarea.inputarea
+    const monaco = document.querySelector(
+      "textarea.inputarea"
+    ) as HTMLTextAreaElement | null;
+    if (monaco) return monaco;
+
+    // CodeMirror 6 contenteditable
+    const cm = document.querySelector(
+      ".cm-content[contenteditable='true']"
+    ) as HTMLElement | null;
+    if (cm) return cm;
+
+    // Generic contenteditable in view
+    const anyEditable = document.querySelector(
+      "[contenteditable='true']"
+    ) as HTMLElement | null;
+    if (anyEditable) return anyEditable;
 
     return null;
   }
@@ -49,7 +63,7 @@ export function injectInsertText(text: string): InjectResult {
     return {
       ok: false,
       error:
-        "No text field focused. Click into an input/textarea first, then try again.",
+        "No text field found. Click into a normal input/textarea (some code editors need Cmd/Ctrl+V after CPY).",
       needsClipboardFallback: true
     };
   }
@@ -60,13 +74,21 @@ export function injectInsertText(text: string): InjectResult {
     const selEnd = el.selectionEnd ?? 0;
     const hasSelection = selStart !== selEnd;
 
-    // No selection → replace whole value (clears placeholder/hint text in the field)
     const start = hasSelection ? selStart : 0;
     const end = hasSelection ? selEnd : el.value.length;
 
-    el.setRangeText(text, start, end, "end");
+    try {
+      el.setRangeText(text, start, end, "end");
+    } catch {
+      // Some editors mark the textarea read-only visually but still allow value set
+      el.value = hasSelection
+        ? el.value.slice(0, start) + text + el.value.slice(end)
+        : text;
+    }
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    // Monaco listens to these
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text }));
     return { ok: true, inserted: true };
   }
 
@@ -77,8 +99,6 @@ export function injectInsertText(text: string): InjectResult {
       !!sel && !sel.isCollapsed && el.contains(sel.anchorNode);
 
     if (!hasSelection) {
-      // Replace all content in the editable
-      el.focus();
       const range = document.createRange();
       range.selectNodeContents(el);
       sel?.removeAllRanges();

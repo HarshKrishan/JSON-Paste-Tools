@@ -15,6 +15,7 @@ export default defineManifest({
     "scripting",
     "offscreen"
   ],
+  host_permissions: ["<all_urls>"],
   background: {
     service_worker: "src/background/index.ts",
     type: "module"

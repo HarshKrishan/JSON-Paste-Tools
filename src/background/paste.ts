@@ -3,6 +3,7 @@ import { transformJson } from "@/shared/json";
 import { loadSettings } from "@/shared/settings";
 import type { JsonTransformMode } from "@/shared/types";
 import { readClipboardText, writeClipboardText } from "./clipboard";
+import { saveLastResult } from "./lastResult";
 
 async function resolveTabId(tabId?: number): Promise<number | undefined> {
   if (tabId != null) return tabId;
@@ -61,14 +62,24 @@ export async function transformAndPasteIntoActiveTab(
 
   let raw = clipboardText;
   if (raw == null) {
-    const clip = await readClipboardText();
+    const clip = await readClipboardText(targetTabId);
     if (!clip.ok) return { ok: false, error: clip.error };
     raw = clip.text;
   }
 
+  if (!raw.trim()) {
+    return {
+      ok: false,
+      error: "Clipboard is empty. Copy some JSON first, then try again."
+    };
+  }
+
   const transformed = transformJson(raw, mode, settings);
   if (!transformed.ok) {
-    return { ok: false, error: transformed.error };
+    return {
+      ok: false,
+      error: `Clipboard is not valid JSON: ${transformed.error}`
+    };
   }
 
   const output = transformed.output ?? "";
@@ -81,7 +92,10 @@ export async function transformAndPasteIntoActiveTab(
     return {
       ok: true,
       inserted: false,
-      copiedToClipboard: true
+      copiedToClipboard: true,
+      error:
+        inserted.error ||
+        "Could not insert into this editor — transformed JSON copied to clipboard. Press Cmd/Ctrl+V."
     };
   }
 
@@ -90,11 +104,27 @@ export async function transformAndPasteIntoActiveTab(
     error:
       inserted.error ||
       written.error ||
-      "Could not insert into the page or update the clipboard."
+      "Could not insert into the page or update the clipboard. Try a normal <textarea>, or use the popup."
   };
 }
 
 export async function notifyResult(result: InjectResult): Promise<void> {
+  const message = result.ok
+    ? result.inserted
+      ? "Pasted successfully"
+      : result.error ||
+        "Transformed JSON copied to clipboard — press Cmd/Ctrl+V to paste"
+    : result.error || "Something went wrong";
+
+  await saveLastResult(result.ok, message);
+
+  // Hover the extension icon to read this
+  await chrome.action.setTitle({
+    title: result.ok
+      ? `JSON Paste Tools — ${message}`
+      : `JSON Paste Tools — Error: ${message}`
+  });
+
   if (result.ok && result.inserted) {
     await chrome.action.setBadgeText({ text: "OK" });
   } else if (result.ok && result.copiedToClipboard) {
@@ -105,7 +135,9 @@ export async function notifyResult(result: InjectResult): Promise<void> {
   await chrome.action.setBadgeBackgroundColor({
     color: result.ok ? "#16a34a" : "#dc2626"
   });
+
   setTimeout(() => {
     void chrome.action.setBadgeText({ text: "" });
-  }, 1800);
+    void chrome.action.setTitle({ title: "JSON Paste Tools" });
+  }, 8000);
 }

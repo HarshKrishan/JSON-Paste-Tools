@@ -15,6 +15,17 @@ export function PopupApp() {
 
   useEffect(() => {
     void loadSettings().then(setSettings);
+    void chrome.runtime
+      .sendMessage({ type: "GET_LAST_RESULT" })
+      .then((res: { result?: { ok: boolean; message: string; at: number } }) => {
+        const last = res?.result;
+        if (!last || Date.now() - last.at > 60_000) return;
+        setStatus({
+          kind: last.ok ? "ok" : "err",
+          text: last.message
+        });
+      })
+      .catch(() => undefined);
   }, []);
 
   const setStatusMsg = (kind: "ok" | "err" | "info", msg: string) => {

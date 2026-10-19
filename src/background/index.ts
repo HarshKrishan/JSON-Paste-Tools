@@ -1,5 +1,6 @@
 import { loadSettings, saveSettings } from "@/shared/settings";
 import type { RuntimeMessage } from "@/shared/types";
+import { loadLastResult } from "./lastResult";
 import { modeFromMenuId, registerContextMenus } from "./menus";
 import { notifyResult, transformAndPasteIntoActiveTab } from "./paste";
 
@@ -64,6 +65,10 @@ chrome.runtime.onMessage.addListener(
         );
         await notifyResult(result);
         sendResponse(result);
+        return;
+      }
+      if (msg.type === "GET_LAST_RESULT") {
+        sendResponse({ result: await loadLastResult() });
       }
     })();
     return true;
